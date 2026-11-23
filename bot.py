@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = int(os.getenv('GUILD_ID') or '0')
+WELCOME_CHANNEL_ID = int(os.getenv('WELCOME_CHANNEL_ID') or '0')
 if not TOKEN:
     raise RuntimeError('Set DISCORD_TOKEN in .env')
 
@@ -27,11 +28,40 @@ class TomoBaoBot(commands.Bot):
             synced = await self.tree.sync()
             logger.info('Synced %d global commands', len(synced))
 
-bot = TomoBaoBot(command_prefix='!', intents=discord.Intents.default(), allowed_mentions=discord.AllowedMentions.none())
+intents = discord.Intents.default()
+intents.members = True
+bot = TomoBaoBot(command_prefix='!', intents=intents, allowed_mentions=discord.AllowedMentions.none())
 
 @bot.event
 async def on_ready():
     logger.info('Logged in as %s', bot.user)
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    if GUILD_ID and member.guild.id != GUILD_ID:
+        return
+    channel = (member.guild.get_channel(WELCOME_CHANNEL_ID) if WELCOME_CHANNEL_ID
+               else discord.utils.get(member.guild.text_channels, name='👋・welcome'))
+    if not isinstance(channel, discord.TextChannel):
+        logger.warning('Welcome channel not found; set WELCOME_CHANNEL_ID')
+        return
+    embed = discord.Embed(
+        title='👋 Welcome!',
+        description=(f'Welcome to **{discord.utils.escape_markdown(member.guild.name)}**, '
+                     f'{member.mention}!\n\n📜 Please read the server rules.\n💬 Enjoy your stay!'),
+        color=discord.Color.blurple(),
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    if member.guild.member_count is not None:
+        embed.set_footer(text=f'Member #{member.guild.member_count}')
+    try:
+        await channel.send(
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+        )
+    except discord.HTTPException:
+        logger.exception('Failed to send welcome message to channel %s', channel.id)
+
 
 @bot.tree.command(name='ping', description='Check the bot latency')
 async def ping(interaction: discord.Interaction):
